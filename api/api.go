@@ -12,10 +12,17 @@ import (
 	"time"
 )
 
+const (
+	megabyte     int = 1000 * 1000
+	CreateUpdate     = "create/update"
+	Remove           = "remove"
+)
+
 type SyncOptions struct {
-	Integration string
-	Targets     []string
-	Arguments   map[string]string
+	Integration        string
+	Targets            []string
+	Arguments          map[string]string
+	RemoveDeletedFiles bool
 }
 
 type ChangeMessage struct {
@@ -23,6 +30,7 @@ type ChangeMessage struct {
 	Path      string
 	Arguments map[string]string
 	Contents  string
+	Type      string
 }
 
 type SyncHandle struct {
@@ -69,25 +77,28 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 			err = func() error {
 				select {
 				case event := <-watcher.Events:
-					if event.Op == fsnotify.Remove {
-						// TODO implement this
-						return nil
-					}
-
-					file, err := os.Open(event.Name)
-					if err != nil {
-						return err
-					}
-					defer file.Close()
-
-					bytes, err := ioutil.ReadAll(file)
-					if err != nil {
-						return err
-					}
-
 					chgMsg := ChangeMessage{}
+
+					if event.Op == fsnotify.Remove {
+						chgMsg.Type = Remove
+					} else {
+						chgMsg.Type = CreateUpdate
+
+						file, err := os.Open(event.Name)
+						if err != nil {
+							return err
+						}
+						defer file.Close()
+
+						bytes, err := ioutil.ReadAll(file)
+						if err != nil {
+							return err
+						}
+
+						chgMsg.Contents = string(bytes)
+					}
+
 					chgMsg.Arguments = opt.Arguments
-					chgMsg.Contents = string(bytes)
 					var parentDir string
 					parentDir, chgMsg.Name = filepath.Split(event.Name)
 
@@ -101,7 +112,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 						return err
 					}
 
-					fmt.Println(string(msg))
+					// fmt.Println(string(msg))
 
 					_, err = writeCloser.Write([]byte(string(msg) + "\n"))
 					return err
@@ -150,13 +161,9 @@ func subTargetsFromDir(targets []string, dir string) (string, error) {
 
 	proto := dir
 
-	fmt.Printf("proto is %v\n", proto)
 	for _, v := range targets {
-		fmt.Printf("target %v\n", v)
 		for i := len(proto) - 1; i > 0; i-- {
-			fmt.Println(i)
 			if i >= len(v) {
-				fmt.Println("i >= len(v), continuing")
 				if i-1 < low {
 					low = i - 1
 				}
@@ -164,22 +171,16 @@ func subTargetsFromDir(targets []string, dir string) (string, error) {
 			}
 
 			if proto[i] == '/' {
-				fmt.Printf("proto[i] is %v, continuing\n", string(proto[i]))
 				continue
 			}
 
 			if proto[i] != v[i] {
-				fmt.Println("proto[i] != v[i]")
 				if i-1 < low {
-					fmt.Println("i < low")
-					fmt.Printf("setting low to %v\n", i-1)
 					low = i - 1
 				}
 			}
 		}
 	}
-
-	fmt.Printf("low %v dir %v\n", low+1, dir)
 
 	return filepath.Clean("/" + dir[low+1:] + "/"), nil
 }

@@ -41,25 +41,35 @@ func main() {
 
 		for _, v := range dests {
 			var file *os.File
-			parent := filepath.Base(opt.Path)
-			err = os.MkdirAll(v+"/"+parent, 0777)
-			if err != nil {
-				handleError(err)
-				break
-			}
-			filePath := v + "/" + filepath.Base(opt.Path) + "/" + opt.Name
-			file, err = os.Create(filepath.Clean(filePath))
+			path := filepath.Clean(v + "/" + opt.Path)
 
-			if err != nil {
-				handleError(err)
-				break
-			}
+			if opt.Type == api.CreateUpdate {
+				err = os.MkdirAll(path, 0777)
+				if err != nil {
+					handleError(err)
+					break
+				}
 
-			_, err = file.Write([]byte(opt.Contents))
-			if err != nil {
-				handleError(err)
+				file, err = os.Create(filepath.Clean(path + "/" + opt.Name))
+				if err != nil {
+					handleError(err)
+					break
+				}
+
+				_, err = file.Write([]byte(opt.Contents))
+				if err != nil {
+					handleError(err)
+				}
+				file.Close()
+			} else if opt.Type == api.Remove {
+				err = os.Remove(path + "/" + opt.Name)
+				if err != nil {
+					handleError(err)
+					break
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "invalid message no recognized type %v\n", opt.Type)
 			}
-			file.Close()
 
 		}
 

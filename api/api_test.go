@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -65,6 +66,13 @@ func writeFileOrDie(path string, contents string) *os.File {
 	return file
 }
 
+func deleteFileOrDie(path string) {
+	err := os.Remove(path)
+	if err != nil {
+		panic(err)
+	}
+}
+
 type Fataler interface {
 	Fatal(...interface{})
 }
@@ -85,7 +93,24 @@ func assertFileExists(t Fataler, path string) {
 	}
 }
 
-func assertFileContents(t *testing.T, path string, contents string) {
+func assertFileNotExists(t Fataler, path string) {
+	var err error
+	for i := 0; i < 3; i++ {
+		_, err = os.Stat(path)
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+
+		time.Sleep(time.Millisecond * 100)
+	}
+
+	if err == nil {
+		t.Fatal("file existed")
+	}
+}
+
+func assertFileContents(t Fataler, path string, contents string) {
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -225,6 +250,61 @@ func TestSubdirectoriesAreRecursivelyAdded(t *testing.T) {
 
 	assertFileExists(t, deltaDir+"/one")
 	assertFileExists(t, deltaDir+"/sub1/two")
+}
+
+func TestDeepSubdirectoriesAreRecursivelyAdded(t *testing.T) {
+	before()
+
+	createDirOrDie(alphaDir)
+	createDirOrDie(alphaDir + "/sub1")
+	createDirOrDie(alphaDir + "/sub1/sub2")
+	createDirOrDie(deltaDir)
+
+	sync, err := Sync(SyncOptions{
+		Integration: "./sfs-localsync",
+		Targets:     []string{alphaDir},
+		Arguments: map[string]string{
+			"destinations": deltaDir,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sync.Close()
+
+	createFileOrDie(alphaDir + "/one")
+	createFileOrDie(alphaDir + "/sub1/sub2/two")
+
+	assertFileExists(t, deltaDir+"/one")
+	assertFileExists(t, deltaDir+"/sub1/sub2/two")
+}
+
+func TestItRemovesFilesWhenRemoveFilesIsSet(t *testing.T) {
+	before()
+
+	createDirOrDie(alphaDir)
+	createDirOrDie(betaDir)
+
+	sync, err := Sync(SyncOptions{
+		Integration: "./sfs-localsync",
+		Targets:     []string{alphaDir},
+		Arguments: map[string]string{
+			"destinations": deltaDir,
+		},
+		RemoveDeletedFiles: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sync.Close()
+
+	createFileOrDie(alphaDir + "/one")
+
+	assertFileExists(t, deltaDir+"/one")
+
+	deleteFileOrDie(alphaDir + "/one")
+
+	assertFileNotExists(t, deltaDir+"/one")
 }
 
 func TestFilesCanBeReplacedWithPlaceholders(t *testing.T) {

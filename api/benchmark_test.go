@@ -66,13 +66,17 @@ func benchmarkFileSize(b *testing.B, size int) {
 	}
 	defer sync.Close()
 
-	b.ResetTimer()
-
+	var contents []string
 	for i := 0; i < b.N; i++ {
 		random := make([]byte, size)
 		rand.Read(random)
-		contents := string(random)
-		writeFileOrDie(alphaDir+"/"+strconv.Itoa(i), contents)
+		contents = append(contents, string(random))
+	}
+
+	b.ResetTimer()
+
+	for i, v := range contents {
+		writeFileOrDie(alphaDir+"/"+strconv.Itoa(i), v)
 		assertFileExists(b, betaDir+"/"+strconv.Itoa(i))
 	}
 
