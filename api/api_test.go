@@ -79,7 +79,7 @@ type Fataler interface {
 
 func assertFileExists(t Fataler, path string) {
 	var err error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 100; i++ {
 		_, err = os.Stat(path)
 		if err == nil {
 			break

@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/fsnotify/fsnotify"
+	"github.com/pkg/errors"
 
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 const (
 	megabyte     int = 1000 * 1000
+	maxFileSize  int = 1000 * 1000
 	CreateUpdate     = "create/update"
 	Remove           = "remove"
 )
@@ -31,6 +33,7 @@ type ChangeMessage struct {
 	Arguments map[string]string
 	Contents  string
 	Type      string
+	LastChunk bool
 }
 
 type SyncHandle struct {
@@ -77,16 +80,17 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 			err = func() error {
 				select {
 				case event := <-watcher.Events:
-					chgMsg := ChangeMessage{}
+					chgMsgs := []ChangeMessage{}
 
 					if event.Op == fsnotify.Remove {
+						chgMsg := ChangeMessage{}
 						chgMsg.Type = Remove
+						chgMsgs = append(chgMsgs, chgMsg)
 					} else {
-						chgMsg.Type = CreateUpdate
 
 						file, err := os.Open(event.Name)
 						if err != nil {
-							return err
+							return errors.Wrapf(err, "error while opening file %v", event.Name)
 						}
 						defer file.Close()
 
@@ -95,26 +99,57 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 							return err
 						}
 
-						chgMsg.Contents = string(bytes)
+						if len(bytes) > maxFileSize {
+							for {
+								var clip int
+								if len(bytes) < maxFileSize {
+									clip = len(bytes) - 1
+								} else {
+									clip = maxFileSize
+								}
+
+								chgMsg := ChangeMessage{}
+								chgMsg.Type = CreateUpdate
+								chgMsg.Contents = string(bytes[:clip])
+								bytes = bytes[clip:]
+
+								chgMsgs = append(chgMsgs, chgMsg)
+
+								if len(bytes) == 0 {
+									break
+								}
+							}
+						} else {
+							chgMsg := ChangeMessage{}
+							chgMsg.Type = CreateUpdate
+							chgMsg.Contents = string(bytes)
+
+							chgMsgs = append(chgMsgs, chgMsg)
+						}
 					}
 
-					chgMsg.Arguments = opt.Arguments
-					var parentDir string
-					parentDir, chgMsg.Name = filepath.Split(event.Name)
+					parentDir, base := filepath.Split(event.Name)
 
-					chgMsg.Path, err = subTargetsFromDir(opt.Targets, parentDir)
-					if err != nil {
-						return err
+					for _, chgMsg := range chgMsgs {
+						chgMsg.Name = base
+						chgMsg.Arguments = opt.Arguments
+						sub, err := subTargetsFromDir(opt.Targets, parentDir)
+						if err != nil {
+							return err
+						}
+
+						chgMsg.Path = sub
+
+						msg, err := json.Marshal(chgMsg)
+						if err != nil {
+							return err
+						}
+
+						// fmt.Println(string(msg))
+
+						_, err = writeCloser.Write([]byte(string(msg) + "\n"))
 					}
 
-					msg, err := json.Marshal(chgMsg)
-					if err != nil {
-						return err
-					}
-
-					// fmt.Println(string(msg))
-
-					_, err = writeCloser.Write([]byte(string(msg) + "\n"))
 					return err
 				}
 			}()
