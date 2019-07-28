@@ -19,7 +19,7 @@ type SyncOptions struct {
 }
 
 type ChangeMessage struct {
-	Source    string
+	Name      string
 	Path      string
 	Arguments map[string]string
 	Contents  string
@@ -36,7 +36,7 @@ func (s SyncHandle) Close() error {
 type MyWriter struct{}
 
 func (MyWriter) Write(p []byte) (n int, err error) {
-	fmt.Print("child: " + string(p))
+	fmt.Printf("child: %v", string(p))
 	return len(p), nil
 }
 
@@ -66,55 +66,63 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 
 	go func() {
 		for {
-			select {
-			case event := <-watcher.Events:
-				file, err := os.Open(event.Name)
-				if err != nil {
-					handleError(err)
-					break
-				}
-				defer file.Close()
+			err = func() error {
+				select {
+				case event := <-watcher.Events:
+					if event.Op == fsnotify.Remove {
+						// TODO implement this
+						return nil
+					}
 
-				bytes, err := ioutil.ReadAll(file)
-				if err != nil {
-					handleError(err)
-					break
-				}
+					file, err := os.Open(event.Name)
+					if err != nil {
+						return err
+					}
+					defer file.Close()
 
-				chgMsg := ChangeMessage{}
-				chgMsg.Path = event.Name
-				chgMsg.Arguments = opt.Arguments
-				chgMsg.Contents = string(bytes)
-				if len(opt.Targets) != 1 {
-					chgMsg.Source, _ = filepath.Split(event.Name)
-				}
+					bytes, err := ioutil.ReadAll(file)
+					if err != nil {
+						return err
+					}
 
-				msg, err := json.Marshal(chgMsg)
-				if err != nil {
-					handleError(err)
-					break
-				}
+					chgMsg := ChangeMessage{}
+					chgMsg.Arguments = opt.Arguments
+					chgMsg.Contents = string(bytes)
+					var parentDir string
+					parentDir, chgMsg.Name = filepath.Split(event.Name)
 
-				fmt.Println(string(msg))
+					chgMsg.Path, err = subTargetsFromDir(opt.Targets, parentDir)
+					if err != nil {
+						return err
+					}
 
-				_, err = writeCloser.Write(msg)
-				if err != nil {
-					handleError(err)
+					msg, err := json.Marshal(chgMsg)
+					if err != nil {
+						return err
+					}
+
+					fmt.Println(string(msg))
+
+					_, err = writeCloser.Write([]byte(string(msg) + "\n"))
+					return err
 				}
+			}()
+			if err != nil {
+				handleError(err)
 			}
 		}
 	}()
 
 	for _, v := range opt.Targets {
-		var folders []string
-		folders = append(folders, v)
+		var stack []string
+		stack = append(stack, v)
 		for {
-			if len(folders) == 0 {
+			if len(stack) == 0 {
 				break
 			}
 
 			var dir string
-			dir, folders = folders[len(folders)-1], folders[:len(folders)-1]
+			dir, stack = stack[len(stack)-1], stack[:len(stack)-1]
 
 			err = watcher.Add(dir)
 			if err != nil {
@@ -128,13 +136,52 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 
 			for _, f := range files {
 				if f.IsDir() {
-					folders = append(folders, f.Name())
+					stack = append(stack, dir+"/"+f.Name())
 				}
 			}
 		}
 	}
 
 	return &SyncHandle{Cmd: cmd}, nil
+}
+
+func subTargetsFromDir(targets []string, dir string) (string, error) {
+	low := len(dir) - 1
+
+	proto := dir
+
+	fmt.Printf("proto is %v\n", proto)
+	for _, v := range targets {
+		fmt.Printf("target %v\n", v)
+		for i := len(proto) - 1; i > 0; i-- {
+			fmt.Println(i)
+			if i >= len(v) {
+				fmt.Println("i >= len(v), continuing")
+				if i-1 < low {
+					low = i - 1
+				}
+				continue
+			}
+
+			if proto[i] == '/' {
+				fmt.Printf("proto[i] is %v, continuing\n", string(proto[i]))
+				continue
+			}
+
+			if proto[i] != v[i] {
+				fmt.Println("proto[i] != v[i]")
+				if i-1 < low {
+					fmt.Println("i < low")
+					fmt.Printf("setting low to %v\n", i-1)
+					low = i - 1
+				}
+			}
+		}
+	}
+
+	fmt.Printf("low %v dir %v\n", low+1, dir)
+
+	return filepath.Clean("/" + dir[low+1:] + "/"), nil
 }
 
 func handleError(err error) {

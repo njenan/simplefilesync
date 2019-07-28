@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -66,7 +65,11 @@ func writeFileOrDie(path string, contents string) *os.File {
 	return file
 }
 
-func assertFileExists(t *testing.T, path string) {
+type Fataler interface {
+	Fatal(...interface{})
+}
+
+func assertFileExists(t Fataler, path string) {
 	var err error
 	for i := 0; i < 3; i++ {
 		_, err = os.Stat(path)
@@ -100,7 +103,6 @@ func assertFileContents(t *testing.T, path string, contents string) {
 
 func TestItCanSyncOneDirectoryToAnother(t *testing.T) {
 	before()
-	fmt.Println("0")
 
 	// create 2 directories
 	createDirOrDie(alphaDir)
@@ -126,7 +128,6 @@ func TestItCanSyncOneDirectoryToAnother(t *testing.T) {
 	assertFileExists(t, betaDir+"/two")
 }
 
-/*
 func TestItCanSyncFromOneDirectoryToMultiple(t *testing.T) {
 	before()
 
@@ -174,7 +175,6 @@ func TestFileContentsAreCopied(t *testing.T) {
 	assertFileExists(t, betaDir+"/one")
 	assertFileContents(t, betaDir+"/one", "asdf")
 }
-
 func TestMultipleTargetsCanBeSpecified(t *testing.T) {
 	before()
 
@@ -238,4 +238,25 @@ func TestPlaceholderConversionCanBeConfigured(t *testing.T) {
 func TestPlaceholdersCanBeRedownloaded(t *testing.T) {
 	t.Skip()
 }
-*/
+
+func TestDirSubtraction(t *testing.T) {
+	res, _ := subTargetsFromDir([]string{"/a/s/d/f", "/a/s/d/f"}, "/a/s/d/f")
+	if res != "/" {
+		t.Fatalf("res was %v not /", res)
+	}
+
+	res, _ = subTargetsFromDir([]string{"/a/s/d/f", "/a/s/d/e"}, "/a/s/d/f")
+	if res != "/f" {
+		t.Fatalf("res was %v not /f", res)
+	}
+
+	res, _ = subTargetsFromDir([]string{"/a/s/d/f"}, "/a/s/d/f/g")
+	if res != "/g" {
+		t.Fatalf("res was %v not /g", res)
+	}
+
+	res, _ = subTargetsFromDir([]string{"/a/s/d/f", "/a/s/d/e"}, "/a/s/d/f/g")
+	if res != "/f/g" {
+		t.Fatalf("res was %v not /f/g", res)
+	}
+}
