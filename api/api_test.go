@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -75,11 +76,12 @@ func deleteFileOrDie(path string) {
 
 type Fataler interface {
 	Fatal(...interface{})
+	Fatalf(string, ...interface{})
 }
 
 func assertFileExists(t Fataler, path string) {
 	var err error
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		_, err = os.Stat(path)
 		if err == nil {
 			break
@@ -95,7 +97,7 @@ func assertFileExists(t Fataler, path string) {
 
 func assertFileNotExists(t Fataler, path string) {
 	var err error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10; i++ {
 		_, err = os.Stat(path)
 		if err != nil {
 			fmt.Println(err)
@@ -111,18 +113,36 @@ func assertFileNotExists(t Fataler, path string) {
 }
 
 func assertFileContents(t Fataler, path string, contents string) {
-	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
+	var err2 error
+
+	for i := 0; i < 10; i++ {
+		err := func() error {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+
+			bytes, err := ioutil.ReadAll(file)
+			if err != nil {
+				return err
+			}
+
+			if contents != string(bytes) {
+				return err
+			}
+
+			return nil
+		}()
+		if err != nil {
+			err2 = err
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		break
 	}
 
-	bytes, err := ioutil.ReadAll(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if contents != string(bytes) {
-		t.Fatal("file contents wrong")
+	if err2 != nil {
+		t.Fatal(err2)
 	}
 }
 
@@ -305,6 +325,33 @@ func TestItRemovesFilesWhenRemoveFilesIsSet(t *testing.T) {
 	deleteFileOrDie(alphaDir + "/one")
 
 	assertFileNotExists(t, deltaDir+"/one")
+}
+
+func TestVeryLargeFilesAreWrittenCorrectly(t *testing.T) {
+	before()
+
+	createDirOrDie(alphaDir)
+	createDirOrDie(betaDir)
+
+	sync, err := Sync(SyncOptions{
+		Integration: "./sfs-localsync",
+		Targets:     []string{alphaDir},
+		Arguments: map[string]string{
+			"destinations": betaDir,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sync.Close()
+
+	contents := make([]byte, 1000*1000+1)
+	rand.Read(contents)
+
+	writeFileOrDie(alphaDir+"/one", string(contents))
+
+	assertFileExists(t, betaDir+"/one")
+	assertFileContents(t, betaDir+"/one", string(contents))
 }
 
 func TestFilesCanBeReplacedWithPlaceholders(t *testing.T) {

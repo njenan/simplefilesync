@@ -18,23 +18,35 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		var line string
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			handleError(err)
-			continue
-		}
-
-		if line == "" {
-			time.Sleep(time.Second)
-			continue
-		}
-
 		opt := &api.ChangeMessage{}
-		err = json.Unmarshal([]byte(line), opt)
-		if err != nil {
-			handleError(err)
-			return
+		var bytes []byte
+
+		for {
+			var line string
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				handleError(err)
+				continue
+			}
+
+			// TODO can this be removed?
+			if line == "" {
+				time.Sleep(time.Second)
+				continue
+			}
+
+			err = json.Unmarshal([]byte(line), opt)
+			if err != nil {
+				handleError(err)
+				return
+			}
+
+			if opt.LastChunk {
+				opt.Contents = string(append(bytes, []byte(opt.Contents)...))
+				break
+			} else {
+				bytes = append(bytes, []byte(opt.Contents)...)
+			}
 		}
 
 		dests := strings.Split(opt.Arguments["destinations"], ",")
@@ -44,7 +56,7 @@ func main() {
 			path := filepath.Clean(v + "/" + opt.Path)
 
 			if opt.Type == api.CreateUpdate {
-				err = os.MkdirAll(path, 0777)
+				err := os.MkdirAll(path, 0777)
 				if err != nil {
 					handleError(err)
 					break
@@ -62,7 +74,7 @@ func main() {
 				}
 				file.Close()
 			} else if opt.Type == api.Remove {
-				err = os.Remove(path + "/" + opt.Name)
+				err := os.Remove(path + "/" + opt.Name)
 				if err != nil {
 					handleError(err)
 					break

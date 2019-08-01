@@ -80,11 +80,12 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 			err = func() error {
 				select {
 				case event := <-watcher.Events:
-					chgMsgs := []ChangeMessage{}
+					chgMsgs := []*ChangeMessage{}
 
 					if event.Op == fsnotify.Remove {
-						chgMsg := ChangeMessage{}
+						chgMsg := &ChangeMessage{}
 						chgMsg.Type = Remove
+						chgMsg.LastChunk = true
 						chgMsgs = append(chgMsgs, chgMsg)
 					} else {
 
@@ -108,7 +109,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 									clip = maxFileSize
 								}
 
-								chgMsg := ChangeMessage{}
+								chgMsg := &ChangeMessage{}
 								chgMsg.Type = CreateUpdate
 								chgMsg.Contents = string(bytes[:clip])
 								bytes = bytes[clip:]
@@ -116,13 +117,15 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 								chgMsgs = append(chgMsgs, chgMsg)
 
 								if len(bytes) == 0 {
+									chgMsg.LastChunk = true
 									break
 								}
 							}
 						} else {
-							chgMsg := ChangeMessage{}
+							chgMsg := &ChangeMessage{}
 							chgMsg.Type = CreateUpdate
 							chgMsg.Contents = string(bytes)
+							chgMsg.LastChunk = true
 
 							chgMsgs = append(chgMsgs, chgMsg)
 						}
@@ -145,9 +148,12 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 							return err
 						}
 
-						// fmt.Println(string(msg))
+						fmt.Println(string(msg))
 
 						_, err = writeCloser.Write([]byte(string(msg) + "\n"))
+						if err != nil {
+							return err
+						}
 					}
 
 					return err
