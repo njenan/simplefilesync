@@ -4,6 +4,7 @@ import (
 	"github.com/njenan/simplefilesync/api"
 
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -42,10 +43,26 @@ func main() {
 			}
 
 			if opt.LastChunk {
-				opt.Contents = string(append(bytes, []byte(opt.Contents)...))
+				encoded := opt.Contents
+
+				decoded, err := base64.StdEncoding.DecodeString(encoded)
+				if err != nil {
+					handleError(err)
+					return
+				}
+
+				opt.Contents = string(append(bytes, decoded...))
 				break
 			} else {
-				bytes = append(bytes, []byte(opt.Contents)...)
+				encoded := opt.Contents
+
+				decoded, err := base64.StdEncoding.DecodeString(encoded)
+				if err != nil {
+					handleError(err)
+					return
+				}
+
+				bytes = append(bytes, decoded...)
 			}
 		}
 

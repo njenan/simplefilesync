@@ -4,6 +4,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
 
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,10 +15,11 @@ import (
 )
 
 const (
-	megabyte     int = 1000 * 1000
-	maxFileSize  int = 1000 * 1000
-	CreateUpdate     = "create/update"
-	Remove           = "remove"
+	megabyte    int = 1000 * 1000
+	maxFileSize int = 10 * megabyte
+
+	CreateUpdate = "create/update"
+	Remove       = "remove"
 )
 
 type SyncOptions struct {
@@ -88,48 +90,66 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 						chgMsg.LastChunk = true
 						chgMsgs = append(chgMsgs, chgMsg)
 					} else {
-
+						fmt.Printf("event detected %v\n", event.Op.String())
 						file, err := os.Open(event.Name)
 						if err != nil {
 							return errors.Wrapf(err, "error while opening file %v", event.Name)
 						}
 						defer file.Close()
 
+						fmt.Println("1")
+
 						bytes, err := ioutil.ReadAll(file)
 						if err != nil {
 							return err
 						}
 
+						fmt.Println("2")
 						if len(bytes) > maxFileSize {
+							fmt.Println("2.1")
 							for {
 								var clip int
 								if len(bytes) < maxFileSize {
-									clip = len(bytes) - 1
+									clip = len(bytes)
 								} else {
 									clip = maxFileSize
 								}
 
+								fmt.Printf("clip is %v\n", clip)
+
 								chgMsg := &ChangeMessage{}
 								chgMsg.Type = CreateUpdate
-								chgMsg.Contents = string(bytes[:clip])
+
+								encoded := make([]byte, base64.StdEncoding.EncodedLen(len(bytes[:clip])))
+								base64.StdEncoding.Encode(encoded, bytes[:clip])
+
+								chgMsg.Contents = string(encoded)
 								bytes = bytes[clip:]
 
 								chgMsgs = append(chgMsgs, chgMsg)
 
+								fmt.Printf("remaining bytes len is %v\n", len(bytes))
 								if len(bytes) == 0 {
 									chgMsg.LastChunk = true
 									break
 								}
 							}
 						} else {
+							fmt.Println("2.2")
 							chgMsg := &ChangeMessage{}
 							chgMsg.Type = CreateUpdate
-							chgMsg.Contents = string(bytes)
+
+							encoded := make([]byte, base64.StdEncoding.EncodedLen(len(bytes)))
+							base64.StdEncoding.Encode(encoded, bytes)
+
+							chgMsg.Contents = string(encoded)
 							chgMsg.LastChunk = true
 
 							chgMsgs = append(chgMsgs, chgMsg)
 						}
 					}
+
+					fmt.Println("3")
 
 					parentDir, base := filepath.Split(event.Name)
 
@@ -148,7 +168,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 							return err
 						}
 
-						fmt.Println(string(msg))
+						// fmt.Println(string(msg))
 
 						_, err = writeCloser.Write([]byte(string(msg) + "\n"))
 						if err != nil {
@@ -156,9 +176,12 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 						}
 					}
 
+					fmt.Printf("file written in %v chunks\n", len(chgMsgs))
+
 					return err
 				}
 			}()
+			fmt.Println("done with event")
 			if err != nil {
 				handleError(err)
 			}

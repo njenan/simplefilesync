@@ -113,10 +113,10 @@ func assertFileNotExists(t Fataler, path string) {
 }
 
 func assertFileContents(t Fataler, path string, contents string) {
-	var err2 error
+	var err error
 
-	for i := 0; i < 10; i++ {
-		err := func() error {
+	for i := 0; i < 100; i++ {
+		err = func() error {
 			file, err := os.Open(path)
 			if err != nil {
 				return err
@@ -128,21 +128,21 @@ func assertFileContents(t Fataler, path string, contents string) {
 			}
 
 			if contents != string(bytes) {
-				return err
+				// return fmt.Errorf("contents did not match")
+				return fmt.Errorf("expected len %v contents: %v\nbut was len %v contents: %v\n", len(contents), contents, len(string(bytes)), string(bytes))
 			}
 
 			return nil
 		}()
 		if err != nil {
-			err2 = err
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		break
 	}
 
-	if err2 != nil {
-		t.Fatal(err2)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -345,8 +345,10 @@ func TestVeryLargeFilesAreWrittenCorrectly(t *testing.T) {
 	}
 	defer sync.Close()
 
-	contents := make([]byte, 1000*1000+1)
+	contents := make([]byte, maxFileSize+2)
 	rand.Read(contents)
+
+	// fmt.Printf("sending contents: '%v'", contents)
 
 	writeFileOrDie(alphaDir+"/one", string(contents))
 
