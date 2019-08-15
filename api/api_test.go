@@ -345,7 +345,7 @@ func TestVeryLargeFilesAreWrittenCorrectly(t *testing.T) {
 	}
 	defer sync.Close()
 
-	contents := make([]byte, maxFileSize+2)
+	contents := make([]byte, DefaultMaxFileSizeBytes+2)
 	rand.Read(contents)
 
 	// fmt.Printf("sending contents: '%v'", contents)
@@ -356,15 +356,7 @@ func TestVeryLargeFilesAreWrittenCorrectly(t *testing.T) {
 	assertFileContents(t, betaDir+"/one", string(contents))
 }
 
-func TestFilesCanBeReplacedWithPlaceholders(t *testing.T) {
-	t.Skip()
-}
-
-func TestPlaceholderConversionCanBeConfigured(t *testing.T) {
-	t.Skip()
-}
-
-func TestPlaceholdersCanBeRedownloaded(t *testing.T) {
+func TestItOnlySendsFileDiffs(t *testing.T) {
 	t.Skip()
 }
 

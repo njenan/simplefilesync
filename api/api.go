@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
+	"strings"
 
 	"encoding/base64"
 	"encoding/json"
@@ -15,18 +16,21 @@ import (
 )
 
 const (
-	megabyte    int = 1000 * 1000
-	maxFileSize int = 10 * megabyte
-
-	CreateUpdate = "create/update"
-	Remove       = "remove"
+	CreateUpdate            = "create/update"
+	Remove                  = "remove"
+	DefaultMaxFileSizeBytes = 10 * 1000
+	PlaceholderExtension    = ".placeholder"
 )
+
+var placeheld = make(map[string]bool)
 
 type SyncOptions struct {
 	Integration        string
 	Targets            []string
 	Arguments          map[string]string
 	RemoveDeletedFiles bool
+	MaxFileSizeBytes   int
+	UsePlaceholders    bool
 }
 
 type ChangeMessage struct {
@@ -54,6 +58,10 @@ func (MyWriter) Write(p []byte) (n int, err error) {
 }
 
 func Sync(opt SyncOptions) (*SyncHandle, error) {
+	if opt.MaxFileSizeBytes == 0 {
+		opt.MaxFileSizeBytes = DefaultMaxFileSizeBytes
+	}
+
 	cmd := exec.Command(opt.Integration)
 
 	cmd.Stderr = MyWriter{}
@@ -84,38 +92,51 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 				case event := <-watcher.Events:
 					chgMsgs := []*ChangeMessage{}
 
+					var file *os.File
+
+					fmt.Printf("event detected %v\n", event.Op.String())
+
 					if event.Op == fsnotify.Remove {
+						// if the file has been swapped for a placeholder then ignore the delete and exit
+						if placeheld[event.Name] {
+							return nil
+						}
+
 						chgMsg := &ChangeMessage{}
 						chgMsg.Type = Remove
 						chgMsg.LastChunk = true
 						chgMsgs = append(chgMsgs, chgMsg)
 					} else {
-						fmt.Printf("event detected %v\n", event.Op.String())
-						file, err := os.Open(event.Name)
+						var err error
+						lastIndex := strings.LastIndex(event.Name, PlaceholderExtension)
+
+						fmt.Println(lastIndex)
+						fmt.Println(len(event.Name))
+						fmt.Println(len(PlaceholderExtension))
+
+						if lastIndex == len(event.Name)+len(PlaceholderExtension) {
+							return nil
+						}
+
+						file, err = os.Open(event.Name)
 						if err != nil {
 							return errors.Wrapf(err, "error while opening file %v", event.Name)
 						}
 						defer file.Close()
-
-						fmt.Println("1")
 
 						bytes, err := ioutil.ReadAll(file)
 						if err != nil {
 							return err
 						}
 
-						fmt.Println("2")
-						if len(bytes) > maxFileSize {
-							fmt.Println("2.1")
+						if len(bytes) > opt.MaxFileSizeBytes {
 							for {
 								var clip int
-								if len(bytes) < maxFileSize {
+								if len(bytes) < opt.MaxFileSizeBytes {
 									clip = len(bytes)
 								} else {
-									clip = maxFileSize
+									clip = opt.MaxFileSizeBytes
 								}
-
-								fmt.Printf("clip is %v\n", clip)
 
 								chgMsg := &ChangeMessage{}
 								chgMsg.Type = CreateUpdate
@@ -128,14 +149,12 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 
 								chgMsgs = append(chgMsgs, chgMsg)
 
-								fmt.Printf("remaining bytes len is %v\n", len(bytes))
 								if len(bytes) == 0 {
 									chgMsg.LastChunk = true
 									break
 								}
 							}
 						} else {
-							fmt.Println("2.2")
 							chgMsg := &ChangeMessage{}
 							chgMsg.Type = CreateUpdate
 
@@ -149,11 +168,13 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 						}
 					}
 
-					fmt.Println("3")
-
 					parentDir, base := filepath.Split(event.Name)
 
 					for _, chgMsg := range chgMsgs {
+						if strings.Contains(base, PlaceholderExtension) {
+							base = strings.ReplaceAll(base, PlaceholderExtension, "")
+						}
+
 						chgMsg.Name = base
 						chgMsg.Arguments = opt.Arguments
 						sub, err := subTargetsFromDir(opt.Targets, parentDir)
@@ -177,6 +198,24 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 					}
 
 					fmt.Printf("file written in %v chunks\n", len(chgMsgs))
+
+					if event.Op != fsnotify.Remove {
+						if opt.UsePlaceholders {
+							fmt.Println("swapping for placeholder")
+
+							placeheld[event.Name] = true
+
+							err = os.Remove(file.Name())
+							if err != nil {
+								return err
+							}
+
+							_, err = os.Create(file.Name() + PlaceholderExtension)
+							if err != nil {
+								return err
+							}
+						}
+					}
 
 					return err
 				}

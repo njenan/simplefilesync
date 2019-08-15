@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+var maxFileSize = DefaultMaxFileSizeBytes
+
 func BenchmarkLocalFileTransferEmptyFile(b *testing.B) {
 	before()
 
@@ -48,6 +50,17 @@ func BenchmarkLocalFileTransferTenMegabyte(b *testing.B) {
 	benchmarkFileSize(b, 10*1000*1000)
 }
 
+func BenchmarkLocalFileTransferOneHundredMegabyte(b *testing.B) {
+	benchmarkFileSize(b, 100*1000*1000)
+}
+
+func BenchmarkMaxFileSizeOneMegabyte(b *testing.B) {
+	maxFileSize = 1 * 1000
+	defer func() { maxFileSize = DefaultMaxFileSizeBytes }()
+
+	benchmarkFileSize(b, 100*1000*1000)
+}
+
 func benchmarkFileSize(b *testing.B, size int) {
 	before()
 
@@ -60,6 +73,7 @@ func benchmarkFileSize(b *testing.B, size int) {
 		Arguments: map[string]string{
 			"destinations": betaDir,
 		},
+		MaxFileSizeBytes: maxFileSize,
 	})
 	if err != nil {
 		b.Fatal(err)
