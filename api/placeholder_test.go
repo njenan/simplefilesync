@@ -80,10 +80,10 @@ func TestItHandlesFilesThatHavePlaceholderInTheirNameButNotTheirExtension(t *tes
 
 	writeFileOrDie(alphaDir+"/one.placeholder.one", string("asdf"))
 
-	assertFileExists(t, alphaDir+"/one.placeholder.one")
+	assertFileExists(t, alphaDir+"/one.placeholder.one.placeholder")
 	assertFileExists(t, betaDir+"/one.placeholder.one")
 
-	deleteFileOrDie(alphaDir + "/one.placeholder.one")
+	deleteFileOrDie(alphaDir + "/one.placeholder.one.placeholder")
 	assertFileNotExists(t, betaDir+"/one.placeholder.one")
 }
 

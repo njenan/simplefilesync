@@ -94,7 +94,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 
 					var file *os.File
 
-					fmt.Printf("event detected %v\n", event.Op.String())
+					fmt.Printf("event detected %v:%v\n", event.Op.String(), event.Name)
 
 					if event.Op == fsnotify.Remove {
 						// if the file has been swapped for a placeholder then ignore the delete and exit
@@ -108,13 +108,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 						chgMsgs = append(chgMsgs, chgMsg)
 					} else {
 						var err error
-						lastIndex := strings.LastIndex(event.Name, PlaceholderExtension)
-
-						fmt.Println(lastIndex)
-						fmt.Println(len(event.Name))
-						fmt.Println(len(PlaceholderExtension))
-
-						if lastIndex == len(event.Name)+len(PlaceholderExtension) {
+						if isPlaceholder(event.Name) {
 							return nil
 						}
 
@@ -171,11 +165,12 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 					parentDir, base := filepath.Split(event.Name)
 
 					for _, chgMsg := range chgMsgs {
-						if strings.Contains(base, PlaceholderExtension) {
-							base = strings.ReplaceAll(base, PlaceholderExtension, "")
+						if isPlaceholder(base) {
+							chgMsg.Name = base[:strings.LastIndex(base, PlaceholderExtension)]
+						} else {
+							chgMsg.Name = base
 						}
 
-						chgMsg.Name = base
 						chgMsg.Arguments = opt.Arguments
 						sub, err := subTargetsFromDir(opt.Targets, parentDir)
 						if err != nil {
@@ -200,7 +195,7 @@ func Sync(opt SyncOptions) (*SyncHandle, error) {
 					fmt.Printf("file written in %v chunks\n", len(chgMsgs))
 
 					if event.Op != fsnotify.Remove {
-						if opt.UsePlaceholders {
+						if opt.UsePlaceholders && !isPlaceholder(event.Name) {
 							fmt.Println("swapping for placeholder")
 
 							placeheld[event.Name] = true
@@ -290,4 +285,14 @@ func subTargetsFromDir(targets []string, dir string) (string, error) {
 
 func handleError(err error) {
 	fmt.Fprintln(os.Stderr, "got error", err)
+}
+
+func isPlaceholder(name string) bool {
+	fmt.Printf("name is %v\nlast index is %v\nlen(name) is %v\nlen(placeholder.ext) is %v\n", name, strings.LastIndex(name, PlaceholderExtension), len(name), len(PlaceholderExtension))
+
+	isPlaceholder := strings.LastIndex(name, PlaceholderExtension)+len(PlaceholderExtension) == len(name)
+
+	fmt.Printf("isPlaceholder is %v\n", isPlaceholder)
+
+	return isPlaceholder
 }
